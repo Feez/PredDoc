@@ -193,7 +193,7 @@ predResult:minionCollision(nMaxCollision)
 
 ---
 ```lua
-predResult:unitTableCollision(enemies, n)
+predResult:unitTableCollision(enemies, nMaxCollision)
 ```
 
 **Parameters:**
