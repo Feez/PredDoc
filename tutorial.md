@@ -87,7 +87,7 @@ Since this is a bik script, we're adding auto anti-gapcloser and auto interrupt.
 
 - A blank sub-menu for the target selector is created, it will be used when initializing DreamTS.
 
-- The anti-gap menu is simply created by loading evey enemy hero's name into the menu which we will check against later.
+- The anti-gap menu is simply created by loading every enemy hero's name into the menu which we will check against later.
 
 - The interrupt menu utilizes `_G.Prediction.LoadInterruptToMenu` which takes in a menu/sub-menu parameter and does the rest with loading. What it loads into the menu will be shown later.
 
@@ -109,7 +109,7 @@ end
 Use this code with either `DreamTS.Damages.AP` or `DreamTS.Damages.AD`.
 
 **Long:**
-The `DreamTS` constructor is takes in [1] a menu/sub-menu parameter, and [2] a table. The table is to include a `Damage` field which should be a function that returns some damage based off of a unit. Internally, it takes a raw value of 200 physical or magic damage and calculates based off the units stats how much would be the final damage. Unless you care about getting super advanced with it, using either `DreamTS.Damages.AP` or `DreamTS.Damages.AD` is fine 99% of the time. 
+The `DreamTS` constructor is takes in [1] a menu/sub-menu parameter, and [2] a table. The table is to include a `Damage` field which should be a function that returns some damage based off of a unit. Internally, it takes a raw value of 200 physical or magic damage and calculates based off the units stats how much would be the final damage. Unless you care about getting super advanced with it, using either `DreamTS.Damages.AP` or `DreamTS.Damages.AD` is fine 99% of the time. Additionally, you can define a `ValidTarget` field which is a function taking in a unit that returns a boolean representing whether that target will be valid. I prefer to leave this field non-existent, manually doing it later per target selector update.
 
 For heros where spell damage is heavily dependent on some other condition being true, it might be worth making your own function. Such a function might be like this:
 ```lua
@@ -162,7 +162,6 @@ function Hotboi:OnTick()
     local combo_mode  = Orbwalker:GetMode() == "Combo" and not Orbwalker:IsAttacking()
 
     if myHero.spellbook:CanUseSpell(SpellSlot.Q) == 0 then
-
         local q_targets, q_preds = self.TS:GetTargets(
                 self.q, -- spell
                 myHero, -- [optional] source (position or unit)
@@ -224,3 +223,76 @@ This is all that needs to be done for auto anti-gap and interrupter to work. We 
 end
 ```
 
+After all this, all that needs to be done is initialize the script in `OnLoad`.
+
+```lua
+function OnLoad()
+    Orbwalker:Setup() -- hopefully deprecated soon pls Timmy
+    Hotboi:init()
+end
+```
+
+# Advanced TS (optional)
+If you have enough of a reason to, you can create your own target selector mode for your script to use.
+```lua
+function TargetSelector:AddMode(mode, setAsDefault)
+```
+Where `mode` is a table with the fields:
+- `Name` -> the name of your mode
+- `Initialize` -> function used to calculate data to be compared when sorting potential targets
+- `Sort` -> actual comparison function used when sorting
+
+Internally in `DreamTS.lua`, an example mode like "Closest To Mouse" is defined as such:
+```lua
+{
+    Name = "Closest To Mouse",
+    Initialize =
+        function(TS, unitData)
+            unitData.val = GetDistanceSqr(unitData.unit, hud.virtualCursorPos)
+        end,
+    Sort =
+        function(a, b)
+            return a.val < b.val
+        end
+}
+```
+
+An example of where you might want to use your own TS mode is if you wanted to prefer targets that had a certain buff. This is all the code that would be needed in addition to the script.
+
+```lua
+self.TS:AddMode(
+    {
+        Name = "Hotboi Custom Mode",
+        Initialize =
+            function(TS, unitData)
+                local unit = unitData.unit
+                unitData.dmg = TS:GetTargetValue(unit)
+                unitData.hasBuff = unit.buffManager:HasBuff("big gay")
+            end,
+        Sort =
+            function(a, b)
+                if a.hasBuff and b.hasBuff then
+                    return a.dmg > b.dmg
+                elseif a.hasBuff then
+                    return true
+                elseif b.hasBuff then
+                    return false
+                end
+
+                return a.dmg > b.dmg
+            end
+    }
+)
+```
+
+Now the target selector will always choose the best target, holding those with the `big gay` to a higher priority. 
+
+Additionally, you can choose not to load your custom mode to the menu and can just pass the table into `GetTargets` as the `TargetMode` parameter.
+```lua
+function TargetSelector:GetTargets(spell, source, ValidTarget, ValidPred, TargetMode)
+```
+
+# Advanced Prediction (FOW Pred)
+**Note:** This is not in the released version of prediction, I have it coded locally however and will be final soon.
+
+The flag `.isFOW` on the prediction result will be set, and you can choose whether or not you want to allow that or not.
