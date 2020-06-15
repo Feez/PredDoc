@@ -1,306 +1,298 @@
-# DreamPred API Documentation
+# DreamPred & DreamTS - bik tutorial
 
-## Initialization
+Instead of the standard API documentation which can be hard to follow, just going to code a standard skillshot champion script and explain as I go. The script is for the AP champion `Hotboi420`, coming soon™.
+
+## Setup
 ```lua
-function OnLoad()
-    if not _G.Prediction then
-    	LoadPaidScript(PaidScript.DREAM_PRED)
-    end 
+if myHero.charName ~= "Hotboi420" then return end
+
+require("FF15Menu")
+require("utils")
+
+local DreamTS = require("DreamTS")
+local Orbwalker = require("FF15OL")
+local Hotboi = {}
+
+if not _G.Prediction then
+    _G.LoadPaidScript(_G.PaidScript.DREAM_PRED)
 end
 ```
-We check if `_G.Prediction` exists before loading DreamPred in order to avoid unnecessary, repeated script loads. The built-in `require` is different in that it automatically avoids this, but `LoadPaidScript` does not.
 
-## Core functions
+We do the usual stuff of including the typical libraries, and then do `_G.LoadPaidScript` with the prediction since it is super special. 
+
+A local table named `Hotboi` is created because I prefer to create my champion scripts in an object-oriented design for readability, and this will be the easiest way to do it.
+
+# Additional Setup
 ```lua
-Prediction.GetPrediction(unit, spell, source)
+local CastModeOptions = {"instant", "slow", "very slow"}
+```
+This will be used later, but I like to give the option to the user to be able to set what cast rate they want the prediction to be set at. I usually prefer `slow`, but `very slow` can be good if you want to be even more conservative with your spell casts. `instant` is trigger happy and I can't recommend for many situations.
+
+# Initialization
+```lua
+function Hotboi:init()
+    self.q = {
+        type = "linear",
+        range = 1000,
+        delay = 0.25,
+        width = 125,
+        speed = 1400,
+        collision = {
+            ["Wall"] = true,
+            ["Hero"] = true,
+            ["Minion"] = true
+        }
+    }
+
+    self:LoadMenu()
+    self:LoadTS()
+
+    AddEvent(
+        Events.OnTick,
+        function()
+            self:OnTick()
+        end
+    )
+
+    PrintChat("Hotboiii loaded.")
+end
 ```
 
-**Parameters:**
+I split the loading process into multiple functions for the sake of this tutorial having smaller chunks of code. The functions not defined yet will be coded later.
 
-| Name   | Type                    | Description                             |
-| ------ | ----------------------- | --------------------------------------- |
-| unit   | GameObject              | The target unit                         |
-| spell  | table [**`SpellData`**] | The spell data you want to use          |
-| source | Vector/D3DXVECTOR3      | The starting position of the spell cast |
+We declare a spell on the implicit `self` table with spell data formatted how you would expect to, with the exception that the `type` of the spell should either be `linear`, `circular`, `cone`, or `targetted`. The `collision` is an optional table that should define `true` or `false` values for each of `Wall`, `Hero`, and `Minion`.
 
-**Returns:**
-
-| #   | Type                     | Description          |
-| --- | ------------------------ | -------------------- |
-| 1   | table [**`predResult`**] | Result of prediction |
-
----
+# Menu
 ```lua
-Prediction.GetUnitPosition(unit, delay)
+function Hotboi:LoadMenu()
+    self.menu = _G.Menu("hotboi420", "Hotboi")
+    self.menu:sub("ts", "Target Selector")
+    
+    self.menu:sub("antigap", "Anti-Gapcloser")
+    for i, enemy in ipairs(ObjectManager:GetEnemyHeroes()) do
+        if not self.menu.antigap[enemy.charName] then
+            self.menu.antigap:checkbox(enemy.charName, enemy.charName, true)
+        end
+    end
+
+    self.menu:sub("interrupt", "Interrupter")
+    _G.Prediction.LoadInterruptToMenu(self.menu.interrupt)
+
+    self.menu:sub("spells", "Spell cast rates")
+    self.menu.spells:list("q", "Q", 2, CastModeOptions)
+end
 ```
 
-**Parameters:**
+Since this is a bik script, we're adding auto anti-gapcloser and auto interrupt. This is done pretty easily and can make your script sound like it took a ton of time to code.
 
-| Name  | Type       | Description        |
-| ----- | ---------- | ------------------ |
-| unit  | GameObject | The target unit    |
-| delay | number     | Delay (in seconds) |
+- A blank sub-menu for the target selector is created, it will be used when initializing DreamTS.
 
-**Returns:**
+- The anti-gap menu is simply created by loading every enemy hero's name into the menu which we will check against later.
 
-| #   | Type        | Description                                       |
-| --- | ----------- | ------------------------------------------------- |
-| 1   | D3DXVECTOR3 | Resulting position from prediction                |
-| 2   | number      | Probability of unit being at position after delay |
+- The interrupt menu utilizes `_G.Prediction.LoadInterruptToMenu` which takes in a menu/sub-menu parameter and does the rest with loading. What it loads into the menu will be shown later.
 
----
+Lastly, we add options for the spell cast rates. Since this is a single spell bik script, I just do it for Q. The value is defaulted to `2`, which is `slow` in our `CastModeOptions` list `{"instant", "slow", "very slow"}`.
+
+# DreamTS Initialization
 ```lua
-Prediction.IsDashing(unit, spell, source)
+function Hotboi:LoadTS()
+    self.TS =
+        DreamTS(
+        self.menu,
+        {
+            Damage = DreamTS.Damages.AP
+        }
+    )
+end
+```
+**Short:**
+Use this code with either `DreamTS.Damages.AP` or `DreamTS.Damages.AD`.
+
+**Long:**
+The `DreamTS` constructor is takes in [1] a menu/sub-menu parameter, and [2] a table. The table is to include a `Damage` field which should be a function that returns some damage based off of a unit. Internally, it takes a raw value of 200 physical or magic damage and calculates based off the units stats how much would be the final damage. Unless you care about getting super advanced with it, using either `DreamTS.Damages.AP` or `DreamTS.Damages.AD` is fine 99% of the time. Additionally, you can define a `ValidTarget` field which is a function taking in a unit that returns a boolean representing whether that target will be valid. I prefer to leave this field non-existent, manually doing it later per target selector update.
+
+For heros where spell damage is heavily dependent on some other condition being true, it might be worth making your own function. Such a function might be like this:
+```lua
+local function CalcDmg(unit)
+    if SomeCondition(unit) then
+        return 5 * DreamTS.Damages.AP(unit)
+    end
+
+    return 2 * DreamTS.Damages.AP(unit)
+end
 ```
 
-**Parameters:**
+and then this function would be used as the `Damage` field.
 
-| Name   | Type                    | Description                             |
-| ------ | ----------------------- | --------------------------------------- |
-| unit   | GameObject              | The target unit                         |
-| spell  | table [**`SpellData`**] | The spell data you want to use          |
-| source | Vector/D3DXVECTOR3      | The starting position of the spell cast |
-
-**Returns:**
-
-| #   | Type   | Description                              |
-| --- | ------ | ---------------------------------------- |
-| 1   | bool   | If target is dashing                     |
-| 2   | bool   | If target can be hit                     |
-| 3   | Vector | Predicted position of target during dash |
-
-*Note: This is implicitly called in `GetPrediction`, it will return hitChance of 1 if the target is dashing & is hittable.*
-
----
+# Helper Stuff
 ```lua
-Prediction.IsCollision(spell, startPos, endPos, target)
+function Hotboi:GetCastRate(spell)
+    return CastModeOptions[self.menu.spells[spell].value]
+end
 ```
-
-**Parameters:**
-
-| Name     | Type                    | Description                                   |
-| -------- | ----------------------- | --------------------------------------------- |
-| spell    | table [**`SpellData`**] | The spell data you want to use                |
-| startPos | Vector/D3DXVECTOR3      | The start position of the spell               |
-| endPos   | Vector/D3DXVECTOR3      | The end position of the spell                 |
-| target   | GameObject              | Target you want to see if collides with spell |
-
-**Returns:**
-
-| #   | Type | Description                                        |
-| --- | ---- | -------------------------------------------------- |
-| 1   | bool | If is collision along the trajectory with 'target' |
-
-*Note: This is not the same as what is used with built-in hero/minion collision. This does not include any collision buffers and is not conservative in returning if there is a collision.*
-
-## Helper functions
+I recommend this in your code somewhere, it's just an easier way to get the menu cast rate string. Such as `self:GetCastRate("q")` -> `"very slow"`.
 
 ```lua
-Prediction.IsRecalling(unit, delay)              -- works for FoW
-Prediction.IsPreparingRecall(unit, delay)
-Prediction.IsTeleporting(unit, delay)            -- works for FoW
-Prediction.IsImmobile(unit, delay)
-Prediction.IsAttacking(unit, delay)
-```
-
-**Parameters:**
-
-| Name  | Type       | Description                                                  |
-| ----- | ---------- | ------------------------------------------------------------ |
-| unit  | GameObject | Unit you want to test condition for                          |
-| delay | number     | Number of seconds in future to make sure condition is active |
-
-**Returns:**
-
-| #   | Type | Description                                         |
-| --- | ---- | --------------------------------------------------- |
-| 1   | bool | If condition will be true after the specified delay |
-| 2   | bool | Time left of condition excluding delay              |
-
----
-```lua
-Prediction.IsFacing(unit, position, angle)
-```
-
-**Parameters:**
-
-| Name     | Type               | Description                                                         |
-| -------- | ------------------ | ------------------------------------------------------------------- |
-| unit     | GameObject         | Unit you want to see if is facing position                          |
-| position | Vector/D3DXVECTOR3 | Position you want to see if 'unit' is facing                        |
-| angle    | number             | Maximum angle rotated from 'unit' direction that contains position. |
-
-
-**Returns:**
-
-| #   | Type | Description                             |
-| --- | ---- | --------------------------------------- |
-| 1   | bool | If 'unit' is facing towards 'position'. |
-
----
-```lua
-Prediction.IsValidTarget(unit, range, from)
-```
-
-**Parameters:**
-
-| Name             | Type       | Description                                                   |
-| ---------------- | ---------- | ------------------------------------------------------------- |
-| unit             | GameObject | Unit you want to test if is valid target                      |
-| *optional* range | number     | The range in which you want to make sure target is in         |
-| *optional* from  | position   | The position for using to check distance from unit for range. |
-
-**Returns:**
-
-| #   | Type | Description                 |
-| --- | ---- | --------------------------- |
-| 1   | bool | If target is a valid target |
-
-## Data Types
-
-### table `predResult`
-
-**Attributes:**
-
-| Name             | Type                | Description                                                                                    |
-| ---------------- | ------------------- | ---------------------------------------------------------------------------------------------- |
-| castPosition     | D3DXVECTOR3 OR bool | Best spot to cast spell at to hit target. False if no valid prediction.                        |
-| targetPosition   | D3DXVECTOR3 OR bool | Exact predicted spot of target regardless of spell width/radius. False if no valid prediction. |
-| hitChance        | number              | Probability of skillshot hitting target                                                        |
-| interceptionTime | number              | Calculated time taken for spell to hit target (including spell delay)                          |
-
-*Note: The difference between `castPosition` and `targetPosition` is that `castPosition` accounts for the unit's bounding radius & the spell's width, where as `targetPosition` does not and would represent the exact predicted position.*
-
----
-#### Methods
-
-```lua
-predResult:heroCollision(nMaxCollision)
-predResult:minionCollision(nMaxCollision)
-```
-
-**Parameters:**
-
-| Name          | Type   | Description                                            |
-| ------------- | ------ | ------------------------------------------------------ |
-| nMaxCollision | number | The maximum number of collisions you care to check for |
-
-**Returns:**
-
-| #   | Type          | Description                                                                                         |
-| --- | ------------- | --------------------------------------------------------------------------------------------------- |
-| 1   | table OR bool | If no collisions, returns false. Otherwise, returns table of collisions up to `nMaxCollision` size. |
-
----
-```lua
-predResult:unitTableCollision(enemies, nMaxCollision)
-```
-
-**Parameters:**
-
-| Name          | Type   | Description                                            |
-| ------------- | ------ | ------------------------------------------------------ |
-| enemies       | table  | Table of units you care to check collision on          |
-| nMaxCollision | number | The maximum number of collisions you care to check for |
-
-**Returns:**
-
-| #   | Type          | Description                                                                                        |
-| --- | ------------- | -------------------------------------------------------------------------------------------------- |
-| 1   | table OR bool | If no collisions, returns false. Otherwise, returns table of collisions up to `nMaxCollision` size |
-
----
-```lua
-predResult:unitCollision(unit)
-```
-
-**Parameters:**
-
-| Name | Type       | Description                                                 |
-| ---- | ---------- | ----------------------------------------------------------- |
-| unit | GameObject | Unit you want to check if will get in the way of skillshot. |
-
-**Returns:**
-
-| #   | Type | Description                                                     |
-| --- | ---- | --------------------------------------------------------------- |
-| 1   | bool | If skillshot would collide with this unit's predicted position. |
-
----
-```lua
-predResult:windWallCollision()
-```
-
-**Returns:**
-
-| #   | Type | Description                                               |
-| --- | ---- | --------------------------------------------------------- |
-| 1   | bool | If skillshot would collide with any active Yasuo windwall |
-
----
-### table `SpellData`
-
-| Name                           | Type   | Description                                                                                                              |
-| ------------------------------ | ------ | ------------------------------------------------------------------------------------------------------------------------ |
-| type                           | string | Either **`Linear`**, **`Circular`**, or **`Cone`**                                                                       |
-| delay                          | number | Number of seconds before the spell is cast **(do not include network ping, it is calculated in prediction)**             |
-| speed                          | number | The speed of the spell. If nil value the speed is math.huge.                                                             |
-| range                          | number | The max range between predicted pos and source. If nil value then range is math.huge                                      |
-| width                          | number | [**`Linear`**] Full width of the spell as a rectangle (not to be confused with `radius` as used on other platforms)      |
-| radius                         | number | [**`Circular`**] Radius of the spell as represented by a circle                                                          |
-| angle                          | number | [**`Cone`**] Angle of the spell as represented by a cone                                                                 |
-| *optional* ignorePing          | bool   | Set this flag to true if you do not want prediction to internally account for ping in the spell delay                    |
-| *optional* forceBoundingRadius | bool   | Set this flag to true if you want to include target boundingRadius in `predResult.castPosition` regardless of spell type |
-
-*Notes for calculating width, radius:*
-- Linear
-    - To calculate width, use the spell measure tool and enable bounding radius drawing. 
-    - Cast your skillshot where the rectangle meets any edge of the boundingRadius circle until the max width where the spell still hits the unit.
-
-    <img src="https://i.imgur.com/UfOtWJU.png" title="Linear spell" width="260"/>
-
-- Circular
-    - To calculate radius for circular spells, do the above but for only the center position of the unit to get the radius.
-  
-    <img src="https://i.imgur.com/vqFKaZE.png" title="Circular spell" width="260"/>
-
-- Cone
-  -  Do same as linear spell.
-
-  <img src="https://i.imgur.com/bDb6Juw.png" title="Linear spell" width="260"/>
-
-## Example Usage
-*Note: This is non-functional code, needs target selector to actually use*
-
-```lua
-function OnLoad()
-    if not _G.Prediction then
-    	LoadPaidScript(PaidScript.DREAM_PRED)
+function Hotboi:CastQ(pred)
+    if pred.rates[self:GetCastRate("q")] then
+        myHero.spellbook:CastSpell(SpellSlot.Q, pred.castPosition)
+        pred:draw()
+        return true
     end
 end
+```
+A cast function to return `true` if you actually cast can be beneficial, combined with drawing the prediction result.
 
-local MySpellData = 
-{
-    slot = SpellSlot.Q,
-    type = "Linear",
-    range = 1300,
-    delay = 0.25,
-    width = 120,
-    speed = 2000
-}
-local MAX_COLLISIONS_ALLOWED = 1
+**Note**: Always try to do `pred:draw()` when you use a prediction result that you cast on. It is never bad to do `pred:draw()`, no extra calculations are done unless debug drawing is enabled in the prediction menu.
 
-AddEvent(Events.OnTick,
-function()
-    if myHero.isDead then return end
+# OnTick (Combo, Anti-Gap, Interrupt)
+Before getting into the combo code, it is noteworthy to point out the signature of useful TS functions:
+```lua
+function TargetSelector:GetTargets(spell, source, ValidTarget, ValidPred, TargetMode)
+function TargetSelector:GetTarget(spell, source, ValidTarget, ValidPred, TargetMode)
+function TargetSelector:update(ValidTarget, TargetMode)
+```
 
-    if _G.Target then
-        local result = _G.Prediction.GetPrediction(_G.Target, MySpellData, myHero)
+The difference between these functions is that `GetTarget` and `GetTargets` are reserved for using with integration with prediction. `update`, however, can be used without any prediction integration. I'll only be doing `GetTargets` to cover mostly everything at once.
 
-        if result.castPosition and result.hitChance > .65 and not result:minionCollision(MAX_COLLISIONS_ALLOWED) then
-            myHero:CastSpell(MySpellData.slot, result.castPosition)
+```lua
+function Hotboi:OnTick()
+    if myHero.dead then return end
+
+    local combo_mode  = Orbwalker:GetMode() == "Combo" and not Orbwalker:IsAttacking()
+
+    if myHero.spellbook:CanUseSpell(SpellSlot.Q) == 0 then
+        local q_targets, q_preds = self.TS:GetTargets(
+                self.q, -- spell
+                myHero, -- [optional] source (position or unit)
+                nil,    -- [optional] ValidTarget function
+                nil,    -- [optional] ValidPred function
+                self.TS.Modes["Hybrid [1.0]"] -- [optional] DreamTS mode
+        )
+--- continue
+```
+**Short:**
+You can probably get by with copy pasting this code for the most part.
+
+**Long:**
+Notable parameters:
+- `[optional] ValidTarget function` -> filter for targets you want to consider, formatted as `ValidTarget(unit) -> boolean`.
+- `[optional] ValidPred function` -> filter for prediction results you want to consider, formatted as `ValidPred(unit, pred) -> boolean`.
+- `[optional] DreamTS mode` -> Any of the TS modes `{"Less Cast Priority", "Less Cast", "Closest To Hero", "Closest To Mouse", "Hybrid [1.0]"}` or a custom one. I chose `"Hybrid [1.0]"` because it is a good mix of choosing closest target and the best target from `Less Cast Priority` which is good for crowd-control spells. `Less Cast Priority` is the default for this parameter.
+
+At this point, the variable `q_targets` is going to simply be a list of valid targets the target selector found (in order from best to worst). This **does not** mean the first target in the list is one that has a valid prediction, however. The point of that is to allow you to choose whether or not you would like to wait for a valid prediction to be found on the best target, or cast at the first best possible target right away.
+
+`q_preds` is going to be a list mapping a unit's `networkId` -> `predResult`, where `predResult` is a prediction result returned from DreamPred. 
+
+**Interrupt and Anti-Gap**
+```lua
+--continue
+        for i = 1, #q_targets do
+            local unit = q_targets[i]
+            local pred = q_preds[unit.networkId]
+
+            if pred then
+                if (pred.targetDashing and self.menu.antigap[unit.charName]:get()) or
+                (pred.isInterrupt and self.menu.interrupt[pred.interruptName]:get()) 
+                then
+                    if self:CastQ(pred) then
+                        return
+                    end
+                end
+            end
+        end
+--continue
+```
+
+This is all that needs to be done for auto anti-gap and interrupter to work. We loop through the targets, check if the pred results are valid for interrupt/dashing and then cast based on our menu settings. The relevant flags on the prediction result are `.targetDashing`, `.isInterrupt` and `.interruptName`.
+
+**Combo**
+```lua
+--continue
+        if ComboMode then
+            local target = q_targets[1]
+            if target then
+                local pred = q_preds[target.networkId]
+                
+                if pred and self:CastQ(pred) then
+                    return
+                end
+            end
         end
     end
 end
+```
+
+After all this, all that needs to be done is initialize the script in `OnLoad`.
+
+```lua
+function OnLoad()
+    Orbwalker:Setup() -- hopefully deprecated soon pls Timmy
+    Hotboi:init()
+end
+```
+
+# Advanced TS (optional)
+If you have enough of a reason to, you can create your own target selector mode for your script to use.
+```lua
+function TargetSelector:AddMode(mode, setAsDefault)
+```
+Where `mode` is a table with the fields:
+- `Name` -> the name of your mode
+- `Initialize` -> function used to calculate data to be compared when sorting potential targets
+- `Sort` -> actual comparison function used when sorting
+
+Internally in `DreamTS.lua`, an example mode like "Closest To Mouse" is defined as such:
+```lua
+{
+    Name = "Closest To Mouse",
+    Initialize =
+        function(TS, unitData)
+            unitData.val = GetDistanceSqr(unitData.unit, hud.virtualCursorPos)
+        end,
+    Sort =
+        function(a, b)
+            return a.val < b.val
+        end
+}
+```
+
+An example of where you might want to use your own TS mode is if you wanted to prefer targets that had a certain buff. This is all the code that would be needed in addition to the script.
+
+```lua
+self.TS:AddMode(
+    {
+        Name = "Hotboi Custom Mode",
+        Initialize =
+            function(TS, unitData)
+                local unit = unitData.unit
+                unitData.dmg = TS:GetTargetValue(unit)
+                unitData.hasBuff = unit.buffManager:HasBuff("big gay")
+            end,
+        Sort =
+            function(a, b)
+                if a.hasBuff and b.hasBuff then
+                    return a.dmg > b.dmg
+                elseif a.hasBuff then
+                    return true
+                elseif b.hasBuff then
+                    return false
+                end
+
+                return a.dmg > b.dmg
+            end
+    }
 )
 ```
+
+Now the target selector will always choose the best target, holding those with the `big gay` to a higher priority. 
+
+Additionally, you can choose not to load your custom mode to the menu and can just pass the table into `GetTargets` as the `TargetMode` parameter.
+```lua
+function TargetSelector:GetTargets(spell, source, ValidTarget, ValidPred, TargetMode)
+```
+
+# Advanced Prediction (FOW Pred)
+**Note:** This is not in the released version of prediction, I have it coded locally however and will be final soon.
+
+The flag `.isFOW` on the prediction result will be set, and you can choose whether or not you want to allow that or not.
