@@ -178,7 +178,7 @@ You can probably get by with copy pasting this code for the most part.
 Notable parameters:
 - `[optional] ValidTarget function` -> filter for targets you want to consider, formatted as `ValidTarget(unit) -> boolean`.
 - `[optional] ValidPred function` -> filter for prediction results you want to consider, formatted as `ValidPred(unit, pred) -> boolean`.
-- `[optional] DreamTS mode` -> Any of the TS modes `{"Less Cast Priority", "Less Cast", "Closest To Hero", "Closest To Mouse", "Hybrid [1.0]"}` or a custom one. I chose `"Hybrid [1.0]"` because it is a good mix of choosing closest target and the best target from `Less Cast Priority` which is good for crowd-control spells. `Less Cast Priority` is the default for this parameter.
+- `[optional] DreamTS mode` -> Any of the TS modes `{"Less Cast Priority", "Less Cast", "Closest To Hero", "Closest To Mouse", "Hybrid [1.0]"}` or a custom one. I chose `"Hybrid [1.0]"` because it is a good mix of choosing closest target and the best target from `Less Cast Priority` which is good *for crowd-control spells*. `Less Cast Priority` is the default for this parameter.
 
 At this point, the variable `q_targets` is going to simply be a list of valid targets the target selector found (in order from best to worst). This **does not** mean the first target in the list is one that has a valid prediction, however. The point of that is to allow you to choose whether or not you would like to wait for a valid prediction to be found on the best target, or cast at the first best possible target right away.
 
@@ -267,7 +267,7 @@ self.TS:AddMode(
             function(TS, unitData)
                 local unit = unitData.unit
                 unitData.dmg = TS:GetTargetValue(unit)
-                unitData.hasBuff = unit.buffManager:HasBuff("big gay")
+                unitData.hasBuff = unit.buffManager:HasBuff("crazyBuff420")
             end,
         Sort =
             function(a, b)
@@ -285,7 +285,7 @@ self.TS:AddMode(
 )
 ```
 
-Now the target selector will always choose the best target, holding those with the `big gay` to a higher priority. 
+Now the target selector will always choose the best target, holding those with the `crazyBuff420` to a higher priority. 
 
 Additionally, you can choose not to load your custom mode to the menu and can just pass the table into `GetTargets` as the `TargetMode` parameter.
 ```lua
@@ -293,6 +293,4 @@ function TargetSelector:GetTargets(spell, source, ValidTarget, ValidPred, Target
 ```
 
 # Advanced Prediction (FOW Pred)
-**Note:** This is not in the released version of prediction, I have it coded locally however and will be final soon.
-
-The flag `.isFOW` on the prediction result will be set, and you can choose whether or not you want to allow that or not.
+**Update:** This will be enabled automatically and be configurable from the target selector options if you use DreamPred + DreamTS combo :)
